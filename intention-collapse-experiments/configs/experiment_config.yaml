@@ -1,0 +1,86 @@
+# Intention Collapse Experiments - Configuration
+# Experiment 4.1: Correlating Intention Metrics with Reasoning Accuracy
+
+# Model Configuration
+model:
+  name: "mistralai/Mistral-7B-Instruct-v0.3"
+  quantization: "4bit"  # Options: "4bit", "8bit", "none"
+  torch_dtype: "float16"
+  device_map: "auto"
+  
+  # Layers to extract activations from (0-indexed)
+  # For Mistral-7B: 32 layers total, we use last 5
+  extraction_layers: [27, 28, 29, 30, 31]
+
+# Dataset Configuration
+dataset:
+  name: "gsm8k"
+  split: "test"
+  subset_size: 200  # Number of problems to evaluate
+  seed: 42
+
+# Experiment Conditions
+conditions:
+  # Baseline: Direct answer without reasoning
+  baseline:
+    name: "zero-shot"
+    prompt_template: |
+      Solve this math problem. Give only the final numerical answer.
+      
+      Problem: {question}
+      Answer:
+    max_new_tokens: 50
+    
+  # Enhanced: Chain-of-thought reasoning
+  enhanced:
+    name: "chain-of-thought"
+    prompt_template: |
+      Solve this math problem step by step. Show your reasoning, then give the final answer.
+      
+      Problem: {question}
+      Solution:
+    max_new_tokens: 512
+
+# Generation Parameters
+generation:
+  temperature: 0.0  # Greedy decoding for reproducibility
+  do_sample: false
+  num_return_sequences: 1
+  
+# Metric Configuration
+metrics:
+  # Effective dimensionality (PCA)
+  dim_eff:
+    variance_threshold: 0.90  # Capture 90% of variance
+    
+  # Intention entropy
+  entropy:
+    top_k: 100  # Consider top-k tokens for entropy calculation
+    
+  # Linear probe for recoverability
+  probe:
+    test_size: 0.2
+    cv_folds: 5
+    regularization: 1.0  # L2 regularization strength
+
+# Output Configuration
+output:
+  results_dir: "results/data"
+  figures_dir: "results/figures"
+  save_activations: false  # Set true to save raw activations (large files)
+  
+# Visualization
+visualization:
+  figure_format: "pdf"  # Options: "pdf", "png", "svg"
+  dpi: 300
+  style: "seaborn-v0_8-whitegrid"
+  
+  # Color scheme for publication
+  colors:
+    baseline: "#1f77b4"  # Blue
+    enhanced: "#ff7f0e"  # Orange
+    correct: "#2ca02c"   # Green
+    incorrect: "#d62728" # Red
+
+# Reproducibility
+random_seed: 42
