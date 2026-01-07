@@ -145,7 +145,8 @@ def extract_activations_with_hooks(
     
     def create_hook(layer_idx):
         def hook_fn(module, input, output):
-            # output[0] is the hidden states tensor (batch, seq_len, hidden_dim)
+            # output[0] is the hidden states tensor
+            # Can be (batch, seq_len, hidden_dim) or (seq_len, hidden_dim)
             hidden_states = output[0].detach().cpu()
             activations[layer_idx].append(hidden_states)
         return hook_fn
@@ -188,9 +189,20 @@ def extract_activations_with_hooks(
         processed_activations = {}
         for layer_idx in layer_indices:
             if len(activations[layer_idx]) > 0:
-                # First element, last token position
-                first_step = activations[layer_idx][0][:, -1, :]  # (batch=1, hidden_dim)
-                processed_activations[layer_idx] = first_step.squeeze(0)  # (hidden_dim,)
+                # Take first captured tensor
+                first_capture = activations[layer_idx][0]
+                
+                # Handle different tensor dimensions
+                if first_capture.ndim == 3:
+                    # (batch, seq_len, hidden_dim) -> take last token
+                    processed_activations[layer_idx] = first_capture[0, -1, :]
+                elif first_capture.ndim == 2:
+                    # (seq_len, hidden_dim) -> take last token
+                    processed_activations[layer_idx] = first_capture[-1, :]
+                else:
+                    # Already (hidden_dim,)
+                    processed_activations[layer_idx] = first_capture.squeeze()
+        
         activations = processed_activations
     
     return activations, generated_text, first_logits
