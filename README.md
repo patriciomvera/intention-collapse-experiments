@@ -13,7 +13,7 @@ Empirical validation of the **Intention Collapse** framework for understanding r
 >
 > P. M. Vera • 2025
 >
-> [Read on arXiv](https://arxiv.org/abs/2501.01011) | [PDF](docs/paper/Intention_Collapse_v2.pdf)
+> [Read on arXiv](https://arxiv.org/abs/2601.01011) | [PDF](docs/paper/Intention_Collapse_v2.pdf)
 
 **Abstract**: We propose *intention collapse* as a unifying framework for analyzing language model reasoning: a two-stage process where a high-dimensional internal state I (intention) is irreversibly projected into a concrete linguistic output through a collapse operator κ. We introduce three model-agnostic intention metrics—H_int(I), dim_eff(I), and Recov(I;Z)—and validate them across multiple models and benchmarks.
 
@@ -199,7 +199,7 @@ If you use this code or findings:
 @article{vera2025intention,
   title={Intention Collapse: Intention-Level Metrics for Reasoning in Language Models},
   author={Vera, Patricio M.},
-  journal={arXiv preprint arXiv:2501.01011},
+  journal={arXiv preprint arXiv:2601.01011},
   year={2025}
 }
 ```
