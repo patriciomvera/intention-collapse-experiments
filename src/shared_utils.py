@@ -1004,7 +1004,7 @@ def run_single_problem(
             do_sample=False,
             pad_token_id=tokenizer.eos_token_id,
             stopping_criteria=stopping_criteria
-            # NOTE: NO output_scores=True, NO return_dict_in_generate=True
+            # NOTE: output_scores and return_dict_in_generate are NOT used
         )
     
     generated_ids = generated[0][input_length:]
