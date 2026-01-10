@@ -38,8 +38,8 @@ warnings.filterwarnings('ignore')
 # VERSION AND METADATA
 # =============================================================================
 
-__version__ = "3.0.0"
-CODE_VERSION = "3.0.0"
+__version__ = "3.1.0"
+CODE_VERSION = "3.1.0"
 
 def get_environment_info() -> Dict[str, str]:
     """Get environment info for reproducibility."""
@@ -370,6 +370,8 @@ def get_stopping_criteria(tokenizer, benchmark: str, condition: str) -> Tuple[Op
     Get stopping criteria based on benchmark/condition.
     
     Returns tuple of (StoppingCriteriaList, StopOnPattern) so we can check if stopped.
+    
+    v3.1: Added \n\n stop for baseline to prevent unwanted reasoning.
     """
     if condition == 'babble':
         return None, None  # Let babble run full length
@@ -385,6 +387,9 @@ def get_stopping_criteria(tokenizer, benchmark: str, condition: str) -> Tuple[Op
             r'####\s*-?\d',
             r'\\boxed\{',
         ]
+        # v3.1: For baseline, also stop on double newline to prevent reasoning
+        if condition == 'baseline':
+            patterns.append(r'\n\n')
     
     stopper = StopOnPattern(tokenizer, patterns, min_tokens=10)
     return StoppingCriteriaList([stopper]), stopper
@@ -712,11 +717,14 @@ def extract_answer_gsm8k(model_output: str) -> Tuple[str, str]:
     """
     Extract numerical answer from GSM8K output.
     
+    v3.1: Added rule_first_block to handle baseline outputs that put answer first
+          then add reasoning (e.g., "18 miles\n\nHere's the reasoning...")
+    
     Returns: (extracted_answer, extraction_rule_used)
     """
     output = model_output.strip()
     
-    # Rule 1: #### followed by number
+    # Rule 1: #### followed by number (highest priority - GSM8K standard format)
     match = re.search(r'####\s*(-?[\d,]+\.?\d*)', output)
     if match:
         return match.group(1).replace(',', ''), 'rule_hash'
@@ -726,12 +734,22 @@ def extract_answer_gsm8k(model_output: str) -> Tuple[str, str]:
     if match:
         return match.group(1).replace(',', ''), 'rule_answer'
     
-    # Rule 3: "= X" at end of line
-    match = re.search(r'=\s*\$?(-?[\d,]+\.?\d*)\s*$', output, re.MULTILINE)
-    if match:
-        return match.group(1).replace(',', ''), 'rule_equals'
+    # Rule 3 (NEW v3.1): First block number - for baseline outputs like "18 miles\n\nHere's..."
+    # Takes the FIRST number from text BEFORE "\n\n" (if present)
+    if '\n\n' in output:
+        first_block = output.split('\n\n')[0]
+        numbers = re.findall(r'-?[\d,]+\.?\d*', first_block)
+        numbers = [n.replace(',', '') for n in numbers 
+                   if n.replace(',', '').replace('.', '').replace('-', '').isdigit()]
+        if numbers:
+            return numbers[0], 'rule_first_block'
     
-    # Rule 4: Last number in output
+    # Rule 4: "= X" at end of line (for CoT calculations - take LAST occurrence)
+    matches = re.findall(r'=\s*\$?(-?[\d,]+\.?\d*)\s*$', output, re.MULTILINE)
+    if matches:
+        return matches[-1].replace(',', ''), 'rule_equals'
+    
+    # Rule 5: Last number in output (fallback)
     numbers = re.findall(r'-?[\d,]+\.?\d*', output)
     numbers = [n.replace(',', '') for n in numbers 
                if n.replace(',', '').replace('.', '').replace('-', '').isdigit()]
@@ -1004,7 +1022,7 @@ def run_single_problem(
             do_sample=False,
             pad_token_id=tokenizer.eos_token_id,
             stopping_criteria=stopping_criteria
-            # NOTE: output_scores and return_dict_in_generate are NOT used
+            # NOTE: NO output_scores=True, NO return_dict_in_generate=True
         )
     
     generated_ids = generated[0][input_length:]
@@ -1258,7 +1276,10 @@ def run_sanity_checks() -> bool:
     
     # Check 5: 2-pass approach (check run_single_problem)
     runner_source = inspect.getsource(run_single_problem)
-    if 'output_scores=True' in runner_source:
+    # v3.1: Only check actual code, not comments
+    runner_code_lines = [l for l in runner_source.split('\n') if not l.strip().startswith('#')]
+    runner_code = '\n'.join(runner_code_lines)
+    if 'output_scores=True' in runner_code:
         print("❌ Still using output_scores=True in runner")
         checks_passed = False
     else:
@@ -1320,6 +1341,15 @@ def run_unit_tests() -> bool:
         all_passed = False
     else:
         print("  ✓ GSM8K extraction works")
+    
+    # Test 3b (NEW v3.1): GSM8K first_block extraction for baseline outputs
+    test_output_baseline = "18 miles\n\nHere's the reasoning:\n\n1. Let's first find Dana's walking speed..."
+    answer, rule = extract_answer_gsm8k(test_output_baseline)
+    if answer != '18':
+        print(f"  ❌ GSM8K first_block test failed: got '{answer}' ({rule}), expected '18'")
+        all_passed = False
+    else:
+        print("  ✓ GSM8K first_block extraction works (v3.1 fix)")
     
     # Test 4: Entropy computation
     logits = torch.randn(1000)
