@@ -379,6 +379,15 @@ class ExperimentRunner:
         """Check if this index should be skipped (already completed)."""
         return idx < self._resume_from
     
+    def set_current_idx(self, idx: int):
+        """
+        Set the current index for checkpoint alignment.
+        
+        Call this before save_item() when using manual iteration
+        (i.e., not using iterate() generator).
+        """
+        self._current_idx = idx
+    
     def iterate(self, items: List[Any], condition: str = "") -> Generator:
         """
         Iterate over items with automatic resume.
