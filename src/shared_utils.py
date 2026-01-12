@@ -38,8 +38,8 @@ warnings.filterwarnings('ignore')
 # VERSION AND METADATA
 # =============================================================================
 
-__version__ = "3.1.0"
-CODE_VERSION = "3.1.0"
+__version__ = "3.2.0"
+CODE_VERSION = "3.2.0"
 
 def get_environment_info() -> Dict[str, str]:
     """Get environment info for reproducibility."""
@@ -717,8 +717,8 @@ def extract_answer_gsm8k(model_output: str) -> Tuple[str, str]:
     """
     Extract numerical answer from GSM8K output.
     
-    v3.1: Added rule_first_block to handle baseline outputs that put answer first
-          then add reasoning (e.g., "18 miles\n\nHere's the reasoning...")
+    v3.2: Fixed rule_first_block to only apply when NO answer markers present.
+          Added rule_final_answer for "Final answer: X" pattern.
     
     Returns: (extracted_answer, extraction_rule_used)
     """
@@ -729,14 +729,20 @@ def extract_answer_gsm8k(model_output: str) -> Tuple[str, str]:
     if match:
         return match.group(1).replace(',', ''), 'rule_hash'
     
-    # Rule 2: "Answer: X" format
+    # Rule 2: "Final answer:" format (common in CoT outputs)
+    match = re.search(r'[Ff]inal\s*[Aa]nswer[:\s]+\$?(-?[\d,]+\.?\d*)', output)
+    if match:
+        return match.group(1).replace(',', ''), 'rule_final_answer'
+    
+    # Rule 3: "Answer: X" format
     match = re.search(r'[Aa]nswer[:\s]+\$?(-?[\d,]+\.?\d*)', output)
     if match:
         return match.group(1).replace(',', ''), 'rule_answer'
     
-    # Rule 3 (NEW v3.1): First block number - for baseline outputs like "18 miles\n\nHere's..."
-    # Takes the FIRST number from text BEFORE "\n\n" (if present)
-    if '\n\n' in output:
+    # Rule 4: First block number - ONLY for baseline-style outputs
+    # Skip if there are answer markers (prevents grabbing "1." from CoT steps)
+    has_answer_marker = re.search(r'[Aa]nswer|####|\\boxed', output, re.IGNORECASE)
+    if not has_answer_marker and '\n\n' in output:
         first_block = output.split('\n\n')[0]
         numbers = re.findall(r'-?[\d,]+\.?\d*', first_block)
         numbers = [n.replace(',', '') for n in numbers 
@@ -744,12 +750,12 @@ def extract_answer_gsm8k(model_output: str) -> Tuple[str, str]:
         if numbers:
             return numbers[0], 'rule_first_block'
     
-    # Rule 4: "= X" at end of line (for CoT calculations - take LAST occurrence)
+    # Rule 5: "= X" at end of line (for CoT calculations - take LAST occurrence)
     matches = re.findall(r'=\s*\$?(-?[\d,]+\.?\d*)\s*$', output, re.MULTILINE)
     if matches:
         return matches[-1].replace(',', ''), 'rule_equals'
     
-    # Rule 5: Last number in output (fallback)
+    # Rule 6: Last number in output (fallback)
     numbers = re.findall(r'-?[\d,]+\.?\d*', output)
     numbers = [n.replace(',', '') for n in numbers 
                if n.replace(',', '').replace('.', '').replace('-', '').isdigit()]
@@ -1342,7 +1348,7 @@ def run_unit_tests() -> bool:
     else:
         print("  ✓ GSM8K extraction works")
     
-    # Test 3b (NEW v3.1): GSM8K first_block extraction for baseline outputs
+    # Test 3b (v3.1): GSM8K first_block extraction for baseline outputs
     test_output_baseline = "18 miles\n\nHere's the reasoning:\n\n1. Let's first find Dana's walking speed..."
     answer, rule = extract_answer_gsm8k(test_output_baseline)
     if answer != '18':
@@ -1350,6 +1356,15 @@ def run_unit_tests() -> bool:
         all_passed = False
     else:
         print("  ✓ GSM8K first_block extraction works (v3.1 fix)")
+    
+    # Test 3c (v3.2): GSM8K "Final answer:" extraction for CoT outputs
+    test_output_cot = "1. First step.\n2. Second step = 42\n\nFinal answer: Janet pays $1430."
+    answer, rule = extract_answer_gsm8k(test_output_cot)
+    if answer != '1430':
+        print(f"  ❌ GSM8K final_answer test failed: got '{answer}' ({rule}), expected '1430'")
+        all_passed = False
+    else:
+        print("  ✓ GSM8K Final answer extraction works (v3.2 fix)")
     
     # Test 4: Entropy computation
     logits = torch.randn(1000)
