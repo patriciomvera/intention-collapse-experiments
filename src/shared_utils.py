@@ -31,6 +31,7 @@ from dataclasses import dataclass, asdict, field
 from contextlib import contextmanager
 from datetime import datetime
 import warnings
+import math
 
 warnings.filterwarnings('ignore')
 
@@ -38,8 +39,8 @@ warnings.filterwarnings('ignore')
 # VERSION AND METADATA
 # =============================================================================
 
-__version__ = "3.2.0"
-CODE_VERSION = "3.2.0"
+__version__ = "3.3.0"
+CODE_VERSION = "3.3.0"
 
 def get_environment_info() -> Dict[str, str]:
     """Get environment info for reproducibility."""
@@ -487,19 +488,27 @@ def compute_intention_entropy(logits: torch.Tensor, top_k: int = 100) -> Tuple[f
     This is H_int(I): entropy of the next-token distribution given the prompt,
     representing pre-collapse uncertainty.
     
+    v3.3: Added numerical stability (subtract max before softmax) and NaN checking.
+    
     Args:
         logits: Logits tensor (can be [vocab_size] or [seq_len, vocab_size])
         top_k: Number of top tokens to consider (for numerical stability)
     
     Returns:
         Tuple of (entropy in bits, argmax token ID)
+        Returns (float('nan'), argmax_idx) if computation produces invalid values.
     """
     if logits.dim() == 2:
         logits = logits[-1]  # Take last position
     
+    # Numerical stability: subtract max before softmax to prevent overflow
+    logits = logits - logits.max()
+    
     # Get top-k for stability
     if top_k > 0 and top_k < logits.size(-1):
         top_logits, top_indices = torch.topk(logits, top_k)
+        # Subtract max again for the subset
+        top_logits = top_logits - top_logits.max()
         probs = F.softmax(top_logits, dim=-1)
         argmax_idx = top_indices[0].item()
     else:
@@ -509,6 +518,10 @@ def compute_intention_entropy(logits: torch.Tensor, top_k: int = 100) -> Tuple[f
     # Compute entropy in bits (log base 2)
     eps = 1e-10
     entropy = -torch.sum(probs * torch.log2(probs + eps)).item()
+    
+    # Check for invalid values - return NaN explicitly rather than hiding it
+    if math.isnan(entropy) or math.isinf(entropy):
+        return float('nan'), argmax_idx
     
     return entropy, argmax_idx
 
@@ -1098,8 +1111,14 @@ def aggregate_results(
     
     # Basic metrics
     accuracies = [r.is_correct for r in results if r.condition != 'babble']
-    entropies = [r.metrics.entropy for r in results]
+    entropies = np.array([r.metrics.entropy for r in results])
     gen_tokens = [r.generated_tokens for r in results]
+    
+    # Count valid/invalid entropies
+    entropy_valid_mask = ~np.isnan(entropies) & ~np.isinf(entropies)
+    entropy_valid_n = int(np.sum(entropy_valid_mask))
+    entropy_nan_count = int(np.sum(np.isnan(entropies)))
+    entropy_inf_count = int(np.sum(np.isinf(entropies)))
     
     # Dimensionality
     dim_eff_global = 0
@@ -1124,8 +1143,12 @@ def aggregate_results(
         'n_samples': n,
         'accuracy': np.mean(accuracies) if accuracies else None,
         'accuracy_std': np.std(accuracies) if accuracies else None,
-        'entropy_mean': float(np.mean(entropies)),
-        'entropy_std': float(np.std(entropies)),
+        'entropy_mean': float(np.nanmean(entropies)),
+        'entropy_std': float(np.nanstd(entropies)),
+        'entropy_valid_n': entropy_valid_n,
+        'entropy_nan_count': entropy_nan_count,
+        'entropy_inf_count': entropy_inf_count,
+        'entropy_nan_rate': entropy_nan_count / n if n > 0 else 0,
         'dim_eff_global': dim_eff_global,
         'dim_eff_layerwise': dim_eff_layerwise,
         'generated_tokens_mean': float(np.mean(gen_tokens)),
