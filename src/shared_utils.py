@@ -45,8 +45,8 @@ warnings.filterwarnings('ignore')
 # VERSION AND METADATA
 # =============================================================================
 
-__version__ = "3.4.0"
-CODE_VERSION = "3.4.0"
+__version__ = "3.5.0"
+CODE_VERSION = "3.5.0"
 
 def get_environment_info() -> Dict[str, str]:
     """Get environment info for reproducibility."""
@@ -198,6 +198,11 @@ PROMPTS = {
         'baseline': "Answer this science question. Give only the letter (A, B, C, or D) after ####.\n\nQuestion: {question}\n{choices}\nAnswer:",
         'enhanced': "Answer this science question step by step. Reason through each option, then give the final answer letter after ####.\n\nQuestion: {question}\n{choices}\nSolution:",
         'babble': "Given this science question, write a stream of consciousness about scientific concepts. Do NOT answer the question.\n\nQuestion: {question}\n{choices}\nStream of consciousness:"
+    },
+    'aqua': {
+        'baseline': "Solve this algebra problem. Give only the letter (A, B, C, D, or E) after ####.\n\nProblem: {question}\n{choices}\nAnswer:",
+        'enhanced': "Solve this algebra problem step by step. Show your work, then give the final answer letter after ####.\n\nProblem: {question}\n{choices}\nSolution:",
+        'babble': "Given this algebra problem, write a stream of consciousness about mathematical concepts. Do NOT solve the problem.\n\nProblem: {question}\n{choices}\nStream of consciousness:"
     }
 }
 
@@ -205,7 +210,7 @@ PROMPTS = {
 def format_prompt(problem: Problem, condition: str) -> str:
     """Format a prompt for a given problem and condition."""
     template = PROMPTS[problem.benchmark][condition]
-    if problem.benchmark == 'arc':
+    if problem.benchmark in ('arc', 'aqua'):
         return template.format(question=problem.question, choices=problem.choices)
     return template.format(question=problem.question)
 
@@ -243,6 +248,9 @@ def get_or_create_indices(benchmark: str, subset_size: int, seed: int,
         dataset = load_dataset("hendrycks/competition_math", split="test")
     elif benchmark == 'arc':
         dataset = load_dataset("allenai/ai2_arc", "ARC-Challenge", split="test")
+    elif benchmark == 'aqua':
+        # AQUA-RAT test split is small (254), use train for more samples
+        dataset = load_dataset("deepmind/aqua_rat", "raw", split="train")
     else:
         raise ValueError(f"Unknown benchmark: {benchmark}")
     
@@ -326,12 +334,50 @@ def load_arc_problems(indices: List[int]) -> List[Problem]:
     return problems
 
 
+def load_aqua_problems(indices: List[int]) -> List[Problem]:
+    """
+    Load AQUA-RAT problems for given indices.
+    
+    AQUA-RAT is a math MCQ dataset with 5 options (A-E).
+    Format: options = ["A)125", "B)150", "C)225", "D)250", "E)275"]
+    """
+    # Use train split (97k examples) since test is small (254)
+    dataset = load_dataset("deepmind/aqua_rat", "raw", split="train")
+    
+    problems = []
+    for local_idx, original_idx in enumerate(indices):
+        item = dataset[original_idx]
+        
+        # Convert options from ["A)125", ...] to "A. 125\nB. 150\n..."
+        choices_lines = []
+        for opt in item['options']:
+            # Parse "A)125" or "A) 125" format
+            if ')' in opt:
+                letter, value = opt.split(')', 1)
+                choices_lines.append(f"{letter.strip()}. {value.strip()}")
+            else:
+                choices_lines.append(opt)
+        choices_text = "\n".join(choices_lines)
+        
+        problems.append(Problem(
+            question=item['question'],
+            answer=item['correct'],  # Store correct answer key (A-E)
+            final_answer=item['correct'],
+            idx=local_idx,
+            original_idx=original_idx,
+            benchmark='aqua',
+            choices=choices_text
+        ))
+    return problems
+
+
 def load_problems(benchmark: str, indices: List[int]) -> List[Problem]:
     """Load problems for a benchmark given indices."""
     loaders = {
         'gsm8k': load_gsm8k_problems,
         'math': load_math_problems,
-        'arc': load_arc_problems
+        'arc': load_arc_problems,
+        'aqua': load_aqua_problems
     }
     return loaders[benchmark](indices)
 
@@ -382,20 +428,28 @@ def get_stopping_criteria(tokenizer, benchmark: str, condition: str) -> Tuple[Op
     v3.4: Fixed ARC patterns - removed "^[A-Da-d]\\.$" which caused premature stops
           on option enumeration like "A. First option...". Added higher min_tokens
           for ARC enhanced to prevent truncation.
+    v3.5: Added AQUA-RAT support (A-E options, similar to ARC).
     """
     if condition == 'babble':
         return None, None  # Let babble run full length
     
     if benchmark == 'arc':
         # v3.4 FIX: Only stop on EXPLICIT answer patterns, NOT on option enumeration
-        # Removed: r'^[A-Da-d]\.$' which matched "A." at start of line (option labels)
         patterns = [
             r'####\s*[A-Da-d]',                      # "#### B"
             r'[Ff]inal\s+[Aa]nswer[:\s]+[A-Da-d]',   # "Final answer: B"
             r'[Tt]he\s+answer\s+is[:\s]+[A-Da-d]',   # "The answer is B"
             r'[Aa]nswer[:\s]+[A-Da-d]\s*$',          # "Answer: B" at end of text
         ]
-        # v3.4: Higher min_tokens for ARC enhanced to prevent early truncation
+        min_tokens = 80 if condition == 'enhanced' else 10
+    elif benchmark == 'aqua':
+        # AQUA-RAT: Math MCQ with 5 options (A-E)
+        patterns = [
+            r'####\s*[A-Ea-e]',                      # "#### C"
+            r'[Ff]inal\s+[Aa]nswer[:\s]+[A-Ea-e]',   # "Final answer: C"
+            r'[Tt]he\s+answer\s+is[:\s]+[A-Ea-e]',   # "The answer is C"
+            r'[Aa]nswer[:\s]+[A-Ea-e]\s*$',          # "Answer: C" at end
+        ]
         min_tokens = 80 if condition == 'enhanced' else 10
     else:  # gsm8k, math
         patterns = [
@@ -872,11 +926,49 @@ def extract_answer_arc(model_output: str) -> Tuple[str, str]:
                 if next_char not in '.):':
                     return letter.upper(), 'rule_last_letter_safe'
     
-    # NO rule_start_line - this was causing the extraction bug!
-    # Old code that's now removed:
-    # match = re.search(r'^([A-Da-d])[\.\)]', output, re.MULTILINE)
-    # if match:
-    #     return match.group(1).upper(), 'rule_start_line'
+    return "", 'rule_none'
+
+
+def extract_answer_aqua(model_output: str) -> Tuple[str, str]:
+    """
+    Extract letter answer (A/B/C/D/E) from AQUA-RAT output.
+    
+    Similar to ARC but with 5 options instead of 4.
+    
+    Returns: (extracted_answer, extraction_rule_used)
+    """
+    output = model_output.strip()
+    
+    # Rule 1: #### X (highest priority)
+    match = re.search(r'####\s*([A-Ea-e])\b', output)
+    if match:
+        return match.group(1).upper(), 'rule_hash'
+    
+    # Rule 2: "Final answer: X"
+    match = re.search(r'[Ff]inal\s+[Aa]nswer[:\s]+([A-Ea-e])\b', output, re.IGNORECASE)
+    if match:
+        return match.group(1).upper(), 'rule_final_answer'
+    
+    # Rule 3: "Answer: X" or "The answer is X"
+    match = re.search(r'(?:[Aa]nswer|[Tt]he\s+answer\s+is)[:\s]+([A-Ea-e])\b', output, re.IGNORECASE)
+    if match:
+        return match.group(1).upper(), 'rule_answer'
+    
+    # Rule 4: "X is correct"
+    match = re.search(r'\b([A-Ea-e])\s+is\s+(?:the\s+)?(?:correct|right|best)\b', output, re.IGNORECASE)
+    if match:
+        return match.group(1).upper(), 'rule_x_is_correct'
+    
+    # Rule 5: LAST standalone letter A-E in tail
+    tail = output[-100:] if len(output) > 100 else output
+    matches = re.findall(r'\b([A-Ea-e])\b', tail)
+    if matches:
+        for letter in reversed(matches):
+            pos = tail.rfind(letter)
+            if pos >= 0:
+                next_char = tail[pos + 1] if pos + 1 < len(tail) else ''
+                if next_char not in '.):':
+                    return letter.upper(), 'rule_last_letter_safe'
     
     return "", 'rule_none'
 
@@ -890,7 +982,8 @@ def extract_answer(model_output: str, benchmark: str) -> Tuple[str, str]:
     extractors = {
         'gsm8k': extract_answer_gsm8k,
         'math': extract_answer_math,
-        'arc': extract_answer_arc
+        'arc': extract_answer_arc,
+        'aqua': extract_answer_aqua
     }
     return extractors[benchmark](model_output)
 
@@ -1006,6 +1099,11 @@ def evaluate_answer_arc(predicted: str, ground_truth: str) -> bool:
     return predicted.strip().upper() == ground_truth.strip().upper()
 
 
+def evaluate_answer_aqua(predicted: str, ground_truth: str) -> bool:
+    """Evaluate AQUA-RAT answer (letter comparison, A-E)."""
+    return predicted.strip().upper() == ground_truth.strip().upper()
+
+
 def evaluate_answer(predicted: str, ground_truth: str, benchmark: str) -> Tuple[bool, bool]:
     """
     Evaluate if predicted answer is correct.
@@ -1018,6 +1116,8 @@ def evaluate_answer(predicted: str, ground_truth: str, benchmark: str) -> Tuple[
         return evaluate_answer_math_symbolic(predicted, ground_truth)
     elif benchmark == 'arc':
         return evaluate_answer_arc(predicted, ground_truth), False
+    elif benchmark == 'aqua':
+        return evaluate_answer_aqua(predicted, ground_truth), False
     else:
         raise ValueError(f"Unknown benchmark: {benchmark}")
 
@@ -1453,7 +1553,34 @@ def run_unit_tests() -> bool:
     else:
         print("  ✓ GSM8K Final answer extraction works (v3.2 fix)")
     
-    # Test 4: Entropy computation
+    # Test 4 (v3.5): AQUA-RAT extraction with #### marker
+    test_output_aqua = "Let me solve this step by step... The profit is 125. #### A"
+    answer, rule = extract_answer_aqua(test_output_aqua)
+    if answer != 'A':
+        print(f"  ❌ AQUA hash extraction failed: got '{answer}', expected 'A'")
+        all_passed = False
+    else:
+        print("  ✓ AQUA-RAT extracts correctly from #### marker (v3.5)")
+    
+    # Test 4b (v3.5): AQUA-RAT with option E
+    test_output_aqua_e = "After calculating, the answer is E"
+    answer, rule = extract_answer_aqua(test_output_aqua_e)
+    if answer != 'E':
+        print(f"  ❌ AQUA option E test failed: got '{answer}', expected 'E'")
+        all_passed = False
+    else:
+        print("  ✓ AQUA-RAT handles option E correctly (v3.5)")
+    
+    # Test 4c (v3.5): AQUA-RAT should NOT extract from option enumeration
+    test_output_aqua_enum = "Let's check:\nA) 125 seems low\nB) 150 could be right"
+    answer, rule = extract_answer_aqua(test_output_aqua_enum)
+    if answer != '':
+        print(f"  ❌ AQUA enumeration test failed: extracted '{answer}' (should be empty)")
+        all_passed = False
+    else:
+        print("  ✓ AQUA-RAT does NOT extract from option enumeration (v3.5)")
+    
+    # Test 5: Entropy computation
     logits = torch.randn(1000)
     entropy, argmax = compute_intention_entropy(logits, top_k=100)
     if not (0 <= entropy <= 10):  # Reasonable entropy range
