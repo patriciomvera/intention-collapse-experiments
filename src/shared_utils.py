@@ -1,13 +1,19 @@
 """
-Intention Collapse Experiments - Shared Utilities v3.0
-=======================================================
+Intention Collapse Experiments - Shared Utilities v3.4.0
+=========================================================
 Single Source of Truth for all experiment logic.
 
 This module contains ALL shared functions. The notebook should ONLY import
 from here and call these functions - no inline redefinitions.
 
-Version: 3.0
+Version: 3.4.0
 Authors: P. M. Vera
+
+Changelog:
+- v3.4.0: Fixed ARC stopping criteria and extraction to prevent truncation/misextraction
+- v3.3.0: Added numerical stability to entropy computation
+- v3.2.0: Fixed GSM8K extraction for CoT outputs
+- v3.1.0: Added 2-pass approach, baseline stopping fix
 """
 
 import numpy as np
@@ -39,8 +45,8 @@ warnings.filterwarnings('ignore')
 # VERSION AND METADATA
 # =============================================================================
 
-__version__ = "3.3.0"
-CODE_VERSION = "3.3.0"
+__version__ = "3.4.0"
+CODE_VERSION = "3.4.0"
 
 def get_environment_info() -> Dict[str, str]:
     """Get environment info for reproducibility."""
@@ -372,17 +378,25 @@ def get_stopping_criteria(tokenizer, benchmark: str, condition: str) -> Tuple[Op
     
     Returns tuple of (StoppingCriteriaList, StopOnPattern) so we can check if stopped.
     
-    v3.1: Added \n\n stop for baseline to prevent unwanted reasoning.
+    v3.1: Added \\n\\n stop for baseline to prevent unwanted reasoning.
+    v3.4: Fixed ARC patterns - removed "^[A-Da-d]\\.$" which caused premature stops
+          on option enumeration like "A. First option...". Added higher min_tokens
+          for ARC enhanced to prevent truncation.
     """
     if condition == 'babble':
         return None, None  # Let babble run full length
     
     if benchmark == 'arc':
+        # v3.4 FIX: Only stop on EXPLICIT answer patterns, NOT on option enumeration
+        # Removed: r'^[A-Da-d]\.$' which matched "A." at start of line (option labels)
         patterns = [
-            r'####\s*[A-Da-d]',
-            r'[Aa]nswer[:\s]+[A-Da-d]\s*$',
-            r'^[A-Da-d]\.$',
+            r'####\s*[A-Da-d]',                      # "#### B"
+            r'[Ff]inal\s+[Aa]nswer[:\s]+[A-Da-d]',   # "Final answer: B"
+            r'[Tt]he\s+answer\s+is[:\s]+[A-Da-d]',   # "The answer is B"
+            r'[Aa]nswer[:\s]+[A-Da-d]\s*$',          # "Answer: B" at end of text
         ]
+        # v3.4: Higher min_tokens for ARC enhanced to prevent early truncation
+        min_tokens = 80 if condition == 'enhanced' else 10
     else:  # gsm8k, math
         patterns = [
             r'####\s*-?\d',
@@ -391,8 +405,9 @@ def get_stopping_criteria(tokenizer, benchmark: str, condition: str) -> Tuple[Op
         # v3.1: For baseline, also stop on double newline to prevent reasoning
         if condition == 'baseline':
             patterns.append(r'\n\n')
+        min_tokens = 10
     
-    stopper = StopOnPattern(tokenizer, patterns, min_tokens=10)
+    stopper = StopOnPattern(tokenizer, patterns, min_tokens=min_tokens)
     return StoppingCriteriaList([stopper]), stopper
 
 
@@ -813,31 +828,55 @@ def extract_answer_arc(model_output: str) -> Tuple[str, str]:
     """
     Extract letter answer (A/B/C/D) from ARC output.
     
-    IMPORTANT: Takes LAST letter match to avoid capturing letters in reasoning.
+    v3.4 FIX: Removed rule_start_line which incorrectly extracted from option
+    enumeration (e.g., "A. First option..." would extract "A" as the answer).
+    Now only uses explicit answer patterns and a safer tail-based fallback.
     
     Returns: (extracted_answer, extraction_rule_used)
     """
     output = model_output.strip()
     
-    # Rule 1: #### X
+    # Rule 1: #### X (highest priority - explicit answer marker)
     match = re.search(r'####\s*([A-Da-d])\b', output)
     if match:
         return match.group(1).upper(), 'rule_hash'
     
-    # Rule 2: "Answer: X" or "The answer is X"
-    match = re.search(r'(?:[Aa]nswer|[Tt]he answer is)[:\s]+([A-Da-d])\b', output, re.IGNORECASE)
+    # Rule 2: "Final answer: X" (common in CoT)
+    match = re.search(r'[Ff]inal\s+[Aa]nswer[:\s]+([A-Da-d])\b', output, re.IGNORECASE)
+    if match:
+        return match.group(1).upper(), 'rule_final_answer'
+    
+    # Rule 3: "Answer: X" or "The answer is X"
+    match = re.search(r'(?:[Aa]nswer|[Tt]he\s+answer\s+is)[:\s]+([A-Da-d])\b', output, re.IGNORECASE)
     if match:
         return match.group(1).upper(), 'rule_answer'
     
-    # Rule 3: Letter at start of line with period/paren (e.g., "A." or "A)")
-    match = re.search(r'^([A-Da-d])[\.\)]', output, re.MULTILINE)
+    # Rule 4: "X is correct/right/best"
+    match = re.search(r'\b([A-Da-d])\s+is\s+(?:the\s+)?(?:correct|right|best)\b', output, re.IGNORECASE)
     if match:
-        return match.group(1).upper(), 'rule_start_line'
+        return match.group(1).upper(), 'rule_x_is_correct'
     
-    # Rule 4: LAST standalone letter A-D (not first!)
-    matches = re.findall(r'\b([A-Da-d])\b', output)
+    # Rule 5: LAST standalone letter A-D in the TAIL of the response
+    # v3.4: Only search last 100 chars to avoid picking up letters from reasoning
+    # Also check that the letter is not followed by ) or . (which indicates option label)
+    tail = output[-100:] if len(output) > 100 else output
+    matches = re.findall(r'\b([A-Da-d])\b', tail)
     if matches:
-        return matches[-1].upper(), 'rule_last_letter'
+        # Check each match from the end, looking for one that's not an option label
+        for letter in reversed(matches):
+            # Find position of this letter in tail
+            pos = tail.rfind(letter)
+            if pos >= 0:
+                # Check next character - if it's ) or . or :, this is likely an option label
+                next_char = tail[pos + 1] if pos + 1 < len(tail) else ''
+                if next_char not in '.):':
+                    return letter.upper(), 'rule_last_letter_safe'
+    
+    # NO rule_start_line - this was causing the extraction bug!
+    # Old code that's now removed:
+    # match = re.search(r'^([A-Da-d])[\.\)]', output, re.MULTILINE)
+    # if match:
+    #     return match.group(1).upper(), 'rule_start_line'
     
     return "", 'rule_none'
 
@@ -1280,13 +1319,13 @@ def run_sanity_checks() -> bool:
     else:
         print("  ✓ Probe uses Pipeline (no leakage)")
     
-    # Check 2: ARC extraction takes LAST match
+    # Check 2: ARC extraction does NOT use rule_start_line (v3.4 fix)
     arc_source = inspect.getsource(extract_answer_arc)
-    if 'matches[-1]' not in arc_source:
-        print("❌ ARC extraction may not take LAST match")
+    if 'rule_start_line' in arc_source and 'return' in arc_source.split('rule_start_line')[0][-50:]:
+        print("❌ ARC extraction still uses rule_start_line")
         checks_passed = False
     else:
-        print("  ✓ ARC extraction takes LAST letter match")
+        print("  ✓ ARC extraction v3.4 fix applied (no rule_start_line)")
     
     # Check 3: MATH uses symbolic evaluation
     math_source = inspect.getsource(evaluate_answer_math_symbolic)
@@ -1321,6 +1360,13 @@ def run_sanity_checks() -> bool:
     else:
         print("  ✓ Results include version tracking")
     
+    # Check 7: ARC stopping criteria has higher min_tokens for enhanced (v3.4)
+    stop_source = inspect.getsource(get_stopping_criteria)
+    if 'min_tokens = 80' in stop_source or 'min_tokens=80' in stop_source:
+        print("  ✓ ARC enhanced has higher min_tokens (v3.4)")
+    else:
+        print("⚠️  ARC min_tokens may not be set to 80 for enhanced")
+    
     print()
     if checks_passed:
         print(f"✅ All sanity checks passed! Version {CODE_VERSION}")
@@ -1339,7 +1385,7 @@ def run_unit_tests() -> bool:
     print("\nRunning unit tests...")
     all_passed = True
     
-    # Test 1: ARC extraction with letters in reasoning
+    # Test 1: ARC extraction with explicit answer
     test_output = "Let me think about this. Option A seems good, but B is better. Actually, C is wrong. The answer is D."
     answer, rule = extract_answer_arc(test_output)
     if answer != 'D':
@@ -1347,6 +1393,24 @@ def run_unit_tests() -> bool:
         all_passed = False
     else:
         print("  ✓ ARC extraction handles reasoning letters correctly")
+    
+    # Test 1b (v3.4): ARC should NOT extract from option enumeration
+    test_output_enumeration = "Let's analyze each option:\n\nA. First option is about gravity\n\nB. Second option discusses"
+    answer, rule = extract_answer_arc(test_output_enumeration)
+    if answer != '':
+        print(f"  ❌ ARC v3.4 test failed: extracted '{answer}' from option enumeration (should be empty)")
+        all_passed = False
+    else:
+        print("  ✓ ARC v3.4: Does NOT extract from option enumeration")
+    
+    # Test 1c (v3.4): ARC should extract from ####
+    test_output_hash = "After analysis, #### B"
+    answer, rule = extract_answer_arc(test_output_hash)
+    if answer != 'B':
+        print(f"  ❌ ARC hash extraction failed: got '{answer}', expected 'B'")
+        all_passed = False
+    else:
+        print("  ✓ ARC extracts correctly from #### marker")
     
     # Test 2: MATH symbolic evaluation
     is_correct, parse_failed = evaluate_answer_math_symbolic("1/2", "0.5")
