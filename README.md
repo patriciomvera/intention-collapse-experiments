@@ -3,58 +3,88 @@
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/patriciomvera/intention-collapse-experiments/blob/main/notebooks/scaled/01_run_experiments.ipynb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![arXiv](https://img.shields.io/badge/arXiv-2501.xxxxx-b31b1b.svg)](https://arxiv.org/abs/2501.xxxxx)
+[![arXiv](https://img.shields.io/badge/arXiv-2601.01011-b31b1b.svg)](https://arxiv.org/abs/2601.01011)
 
 Empirical validation of the **Intention Collapse** framework for understanding reasoning in Large Language Models.
 
-## 📄 Paper
+## Paper
 
 > **Intention Collapse: Intention-Level Metrics for Reasoning in Language Models**
 >
-> P. M. Vera • 2025
+> P. M. Vera
 >
-> [Read on arXiv](https://arxiv.org/abs/2601.01011) | [PDF](docs/paper/Intention_Collapse_v2.pdf)
+> [Read on arXiv](https://arxiv.org/abs/2601.01011) | [PDF](docs/paper/Intention_Collapse.pdf)
 
-**Abstract**: We propose *intention collapse* as a unifying framework for analyzing language model reasoning: a two-stage process where a high-dimensional internal state I (intention) is irreversibly projected into a concrete linguistic output through a collapse operator κ. We introduce three model-agnostic intention metrics—H_int(I), dim_eff(I), and Recov(I;Z)—and validate them across multiple models and benchmarks.
+## Abstract
 
-## 🎯 Overview
+Language generation maps a rich, high-dimensional internal state to a single token sequence. We study this many-to-one mapping through the lens of **intention collapse**: the projection from an internal intention space *I* to an external language space *L*. We introduce three cheap, model-agnostic metrics computed on a pre-collapse state *I*:
 
-The framework distinguishes:
-- **Intention Formation**: Building a rich internal state I from prompt, context, and parameters
-- **Intention Collapse**: Irreversible projection κ : I → y (linguistic output)
+1. **Intention entropy** H_int(I) - Shannon entropy of the next-token distribution at the pre-collapse moment
+2. **Effective dimensionality** dim_eff(I) - PCA-based participation ratio capturing geometric richness
+3. **Recoverability** Recov(I;Z) - Linear probe AUROC for predicting eventual success
 
-This perspective unifies contemporary reasoning techniques (CoT, STaR, Quiet-STaR, process supervision, test-time training) as interventions on I *before* collapse.
+We evaluate these metrics in a 3x3 study across models (Mistral-7B, LLaMA-3.1-8B, Qwen-2.5-7B) and benchmarks (GSM8K, ARC-Challenge, AQUA-RAT), comparing baseline, chain-of-thought (CoT), and a babble control (n=200 items per cell).
 
-## 📊 Key Findings
+### Key Findings
 
-**Pilot Study** (200 GSM8K problems, Mistral-7B):
-- CoT improves accuracy: 5.5% → 53.0%
-- CoT reduces intention entropy: 1.42 → 0.37 bits
-- CoT increases global dimensionality: 2.43 → 2.85
-- Linear probe recovers latent correctness: AUROC = 0.65 [0.57-0.72]
+- **CoT is not universally beneficial**: Large gains on GSM8K but consistent degradations on ARC-Challenge
+- **Distinct entropy regimes across models**: Mistral shows lower-entropy CoT while LLaMA shows higher-entropy CoT
+- **Recoverability can dissociate from accuracy**: High probe AUROC can co-occur with degraded CoT accuracy, suggesting internal signal exists but isn't reliably converted to final decisions
 
-**Scaled Experiments** (3 models × 3 benchmarks, in progress):
-- Cross-model validation of intention collapse signatures
-- Benchmark generalization (GSM8K, MATH, ARC-Challenge)
-- Methodological improvements addressing reviewer feedback
+## Repository Structure
 
-## 🚀 Quick Start
+```
+intention-collapse-experiments/
+├── README.md                    # This file
+├── CLAUDE.md                    # Project context for AI assistants
+├── CONTRIBUTING.md              # Contribution guidelines
+├── requirements.txt             # Python dependencies
+├── .gitignore
+│
+├── configs/
+│   └── experiment_config.yaml   # Experiment hyperparameters
+│
+├── docs/
+│   ├── README.md
+│   └── paper/
+│       └── Intention_Collapse.pdf   # Current manuscript
+│
+├── notebooks/
+│   ├── colab_quick_test.ipynb       # Setup validation
+│   ├── pilot/                       # Initial validation (200 GSM8K, 1 model)
+│   │   ├── 01_pilot_gsm8k.ipynb
+│   │   └── README.md
+│   └── scaled/                      # Full 3x3 experiments
+│       ├── 01_run_experiments.ipynb
+│       ├── 02_consolidate_results.ipynb
+│       ├── reviewer_response_recalculations.ipynb
+│       ├── METHODOLOGICAL_CLARIFICATIONS.md
+│       └── README.md
+│
+├── results/
+│   ├── data/                        # JSON results & activations
+│   └── figures/                     # Publication-quality plots
+│
+└── src/
+    ├── __init__.py
+    ├── activation_hooks.py          # Activation extraction utilities
+    ├── checkpoint_utils.py          # Checkpoint management
+    ├── data_utils.py                # Dataset loading and processing
+    ├── metrics.py                   # Intention metrics computation
+    ├── probing.py                   # Linear probe training/evaluation
+    ├── shared_utils.py              # Core experiment utilities
+    └── visualization.py             # Plotting functions
+```
 
-### Option 1: Google Colab (Recommended)
+## Installation
 
-**Run Scaled Experiments:**
+### Requirements
 
-1. Click the badge above or open in Colab: [`01_run_experiments.ipynb`](notebooks/scaled/01_run_experiments.ipynb)
-2. Set `MODEL_FAMILY` and `BENCHMARK` in Section 2
-3. Runtime > Run all (~40 min on H100)
-4. Repeat for all 9 combinations
-5. Consolidate with [`02_consolidate_results.ipynb`](notebooks/scaled/02_consolidate_results.ipynb)
+- Python 3.10+
+- PyTorch 2.0+
+- CUDA 11.8+ (for GPU acceleration)
 
-**Explore Pilot Study:**
-
-Open [`notebooks/pilot/01_pilot_gsm8k.ipynb`](notebooks/pilot/01_pilot_gsm8k.ipynb) for the initial validation experiment.
-
-### Option 2: Local Installation
+### Local Setup
 
 ```bash
 # Clone repository
@@ -68,132 +98,67 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Set HuggingFace token
+# Set HuggingFace token (required for gated models)
 export HF_TOKEN="your_token_here"
+```
 
-# Run experiments
+### Dependencies
+
+Core ML frameworks:
+- `torch>=2.0.0`
+- `transformers>=4.36.0`
+- `accelerate>=0.25.0`
+- `bitsandbytes>=0.41.0` (for 4-bit quantization)
+
+Scientific computing:
+- `numpy>=1.24.0`
+- `scipy>=1.11.0`
+- `scikit-learn>=1.3.0`
+- `pandas>=2.0.0`
+
+Visualization:
+- `matplotlib>=3.7.0`
+- `seaborn>=0.12.0`
+
+## Running Experiments
+
+### Option 1: Google Colab (Recommended)
+
+1. Click the Colab badge above or open [`01_run_experiments.ipynb`](notebooks/scaled/01_run_experiments.ipynb)
+2. Set `MODEL_FAMILY` and `BENCHMARK` in Section 2
+3. Runtime > Run all
+4. Repeat for all 9 model-benchmark combinations
+5. Consolidate results with [`02_consolidate_results.ipynb`](notebooks/scaled/02_consolidate_results.ipynb)
+
+### Option 2: Local Execution
+
+```bash
+# Run experiments via Jupyter
 jupyter notebook notebooks/scaled/01_run_experiments.ipynb
+
+# Or run pilot study first
+jupyter notebook notebooks/pilot/01_pilot_gsm8k.ipynb
 ```
 
-## 📁 Repository Structure
+### Experimental Design
 
-```
-intention-collapse-experiments/
-├── README.md                           # This file
-├── requirements.txt                    # Python dependencies
-├── LICENSE                             # MIT License
-│
-├── src/
-│   ├── shared_utils.py                # Single source of truth (v3.0, 1347 lines)
-│   └── [other utilities]              # Visualization, data loaders
-│
-├── notebooks/
-│   ├── README.md                      # Notebooks overview
-│   ├── pilot/                         # Initial validation (200 GSM8K, 1 model)
-│   │   ├── README.md
-│   │   └── 01_pilot_gsm8k.ipynb
-│   ├── scaled/                        # Full agenda (3 models × 3 benchmarks)
-│   │   ├── README.md
-│   │   ├── 01_run_experiments.ipynb   # Execution notebook
-│   │   └── 02_consolidate_results.ipynb  # Analysis & figures
-│   └── colab_quick_test.ipynb         # Setup validation
-│
-├── results/
-│   ├── pilot/                         # Pilot study outputs
-│   └── scaled/                        # Scaled experiment outputs
-│       ├── figures/                   # Publication-quality plots
-│       ├── raw_data/                  # JSON results & activations
-│       └── checkpoints/               # Incremental saves
-│
-├── docs/
-│   ├── README.md
-│   ├── paper/
-│   │   └── Intention_Collapse_v2.pdf  # Current manuscript
-│   └── EXPERIMENT_GUIDE.md            # Detailed reproduction guide
-│
-└── configs/
-    └── experiment_config.yaml         # Hyperparameters
-```
+| Models | Benchmarks | Conditions |
+|--------|------------|------------|
+| Mistral-7B-Instruct | GSM8K (free-response math) | Baseline |
+| LLaMA-3.1-8B-Instruct | ARC-Challenge (multiple-choice) | Chain-of-Thought |
+| Qwen-2.5-7B-Instruct | AQUA-RAT (multiple-choice math) | Babble (control) |
 
-## 📈 Intention Metrics
+### Hardware Requirements
 
-Three model-agnostic metrics for quantifying pre-collapse states:
-
-### 1. Intention Entropy H_int(I)
-Shannon entropy of the next-token distribution immediately before first emission:
-```python
-H_int(I) = -Σ p(y|I) log₂ p(y|I)
-```
-*Lower entropy → more decided intention*
-
-### 2. Effective Dimensionality dim_eff(I)
-PCA-based dimensionality of hidden activations:
-```python
-dim_eff(I) = smallest k where Σᵏλᵢ / Σλᵢ ≥ 0.9
-```
-*Higher dimensionality → richer internal representation*
-
-### 3. Latent Recoverability Recov(I;Z)
-Linear probe accuracy (AUROC) for predicting task outcomes:
-```python
-Recov(I;Z) = AUROC(probe(I), Z)
-```
-*Higher AUROC → more latent information preserved pre-collapse*
-
-## 🔬 Experimental Design
-
-### Pilot Study
-- **Model**: Mistral-7B-Instruct-v0.3 (4-bit)
-- **Benchmark**: GSM8K (200 problems)
-- **Conditions**: Baseline, CoT, Babble
-- **Status**: ✅ Complete
-
-### Scaled Experiments (Current)
-- **Models**: Mistral-7B, Llama-3.1-8B, Qwen-2.5-7B
-- **Benchmarks**: GSM8K, MATH, ARC-Challenge
-- **Design**: 3×3 matrix = 9 runs
-- **Conditions**: Baseline, CoT, Babble (per run)
-- **Status**: 🔄 In Progress
-
-### Future Work
-- Experiment 4.2: State-dependent temperature policies
-- Experiment 4.3: Latent recovery with quirky models
-- Multi-modal extension (vision + language)
-
-## 🧪 Requirements
-
-### Software
-- Python 3.10+
-- PyTorch 2.0+
-- Transformers 4.40+
-- CUDA 11.8+ (for GPU acceleration)
-
-### Hardware
-
-| Environment | GPU Memory | Config |
-|-------------|------------|--------|
+| Environment | GPU Memory | Configuration |
+|-------------|------------|---------------|
 | Colab Free | 12-15 GB | 4-bit, batch_size=1 |
 | Colab Pro | 24-40 GB | 8-bit or fp16, batch_size=4 |
 | Local A100 | 40-80 GB | Full precision, batch_size=8+ |
 
-**Recommended**: Google Colab with H100 GPU (~$10/month Pro subscription)
+## Citation
 
-## 🤝 Contributing
-
-Contributions welcome! Areas of interest:
-
-- [ ] Additional models (Claude, GPT-4, Gemini via API)
-- [ ] Additional benchmarks (MMLU, HumanEval)
-- [ ] Experiment 4.2 implementation
-- [ ] Experiment 4.3 implementation
-- [ ] Statistical significance tests
-- [ ] Cross-lingual validation
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-## 📚 Citation
-
-If you use this code or findings:
+If you use this code or findings in your research, please cite:
 
 ```bibtex
 @article{vera2025intention,
@@ -204,18 +169,11 @@ If you use this code or findings:
 }
 ```
 
-## 📜 License
+## License
 
 This project is licensed under the MIT License - see [LICENSE](LICENSE) for details.
 
-## 🙏 Acknowledgments
-
-- Hugging Face for model hosting and `transformers` library
-- Google Colab for accessible GPU compute
-- Anthropic's Claude for research assistance and code review
-- OpenAI (GSM8K), Hendrycks et al. (MATH), AI2 (ARC) for benchmark datasets
-
-## 📧 Contact
+## Contact
 
 **Patricio M. Vera**
 - GitHub: [@patriciomvera](https://github.com/patriciomvera)
@@ -226,4 +184,4 @@ For questions, open an issue or start a discussion.
 
 ---
 
-**Status**: 🔄 Active Development | Last updated: January 2025
+**Status**: Active Development | Preparing for EMNLP/ACL 2026
