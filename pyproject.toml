@@ -30,12 +30,10 @@ dev = [
     "ipykernel>=6.25.0",
 ]
 
-[tool.setuptools]
-packages = {find = {include = ["src*"]}}
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+namespaces = false
 
 [tool.setuptools.package-data]
 src = ["*.py"]
-
-[tool.setuptools.packages.find]
-include = ["src*"]
-namespaces = false
