@@ -165,6 +165,17 @@ class AdaptiveInferenceRouter:
             'entropy_history': []
         }
 
+    def reset_statistics(self):
+        """Reset statistics tracking for new experiment runs."""
+        self.stats = {
+            'total_queries': 0,
+            'direct_routes': 0,
+            'cot_routes': 0,
+            'total_input_tokens': 0,
+            'total_output_tokens': 0,
+            'entropy_history': []
+        }
+
     def compute_intention_entropy(
         self,
         prompt: str,
