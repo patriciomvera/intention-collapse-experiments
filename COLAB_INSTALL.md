@@ -2,15 +2,30 @@
 
 Este documento explica cómo instalar y usar el paquete `intention-collapse` en Google Colab.
 
-## Instalación Rápida (1 cell)
+## Instalación Rápida (1 celda)
+
+### Método 1: Usando el script automático (Recomendado)
 
 ```python
-# Clonar repositorio e instalar paquete
-!rm -rf intention-collapse-experiments
-!git clone -b v2-router-experiments https://github.com/patriciomvera/intention-collapse-experiments.git
-!pip install -e /content/intention-collapse-experiments/ -q
+# Descargar e instalar automáticamente
+!wget -q https://raw.githubusercontent.com/patriciomvera/intention-collapse-experiments/v2-router-experiments/colab_setup.py
+!python colab_setup.py
+```
 
-# Verificar instalación
+### Método 2: Instalación manual
+
+```python
+import sys
+
+# Clonar e instalar
+!rm -rf intention-collapse-experiments
+!git clone -q -b v2-router-experiments https://github.com/patriciomvera/intention-collapse-experiments.git
+!pip install -q -e /content/intention-collapse-experiments/
+
+# Configurar path (necesario en Colab)
+sys.path.insert(0, '/content/intention-collapse-experiments')
+
+# Verificar imports
 from src.router import AdaptiveInferenceRouter, RouteDecision
 from src.metrics import compute_intention_entropy
 from src.controls import self_consistency_baseline

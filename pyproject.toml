@@ -31,7 +31,11 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["src", "src.router", "src.controls", "src.decoding"]
+packages = {find = {include = ["src*"]}}
 
 [tool.setuptools.package-data]
 src = ["*.py"]
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+namespaces = false
