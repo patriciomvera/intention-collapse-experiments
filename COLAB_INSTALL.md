@@ -1,31 +1,31 @@
 # Google Colab Installation Guide
 
-Este documento explica cómo instalar y usar el paquete `intention-collapse` en Google Colab.
+This document explains how to install and use the `intention-collapse` package in Google Colab.
 
-## Instalación Rápida (1 celda)
+## Quick Installation (1 cell)
 
-### Método 1: Usando el script automático (Recomendado)
+### Method 1: Using automatic script (Recommended)
 
 ```python
-# Descargar e instalar automáticamente
-!wget -q https://raw.githubusercontent.com/patriciomvera/intention-collapse-experiments/v2-router-experiments/colab_setup.py
+# Download and install automatically
+!wget -q https://raw.githubusercontent.com/patriciomvera/intention-collapse-experiments/main/scripts/colab_setup.py
 !python colab_setup.py
 ```
 
-### Método 2: Instalación manual
+### Method 2: Manual installation
 
 ```python
 import sys
 
-# Clonar e instalar
+# Clone and install
 !rm -rf intention-collapse-experiments
-!git clone -q -b v2-router-experiments https://github.com/patriciomvera/intention-collapse-experiments.git
+!git clone -q -b main https://github.com/patriciomvera/intention-collapse-experiments.git
 !pip install -q -e /content/intention-collapse-experiments/
 
-# Configurar path (necesario en Colab)
+# Configure path (necessary in Colab)
 sys.path.insert(0, '/content/intention-collapse-experiments')
 
-# Verificar imports
+# Verify imports
 from src.router import AdaptiveInferenceRouter, RouteDecision
 from src.metrics import compute_intention_entropy
 from src.controls import self_consistency_baseline
@@ -34,60 +34,61 @@ from src.decoding import constrained_mc_generation
 print("✅ Installation successful! Ready to run experiments.")
 ```
 
-## Notebooks de Ejemplo
+## Example Notebooks
 
-### Opción 1: Router Experiment (Recomendado)
-Notebook completo con ejemplo funcional del Adaptive Inference Router:
+### Option 1: Router Experiment (Recommended)
+Complete notebook with functional example of the Adaptive Inference Router:
 
 ```python
-# En Colab, ejecuta:
-!git clone -b v2-router-experiments https://github.com/patriciomvera/intention-collapse-experiments.git
-%cd intention-collapse-experiments/notebooks
-# Abre: colab_router_experiment.ipynb
+# In Colab, run:
+!git clone -b main https://github.com/patriciomvera/intention-collapse-experiments.git
+%cd intention-collapse-experiments/notebooks/adaptive_router
+# Open: colab_demo.ipynb
 ```
 
-### Opción 2: Experimentos Completos
-Para replicar los experimentos del paper:
+### Option 2: Complete Experiments
+To replicate the paper experiments:
 
 ```python
-# En Colab, ejecuta:
-!git clone -b v2-router-experiments https://github.com/patriciomvera/intention-collapse-experiments.git
-%cd intention-collapse-experiments/notebooks/scaled
-# Abre: 01_run_experiments.ipynb
+# In Colab, run:
+!git clone -b main https://github.com/patriciomvera/intention-collapse-experiments.git
+%cd intention-collapse-experiments/notebooks/original_research/scaled
+# Open: 01_run_experiments.ipynb
 ```
 
-## Estructura del Paquete
+## Package Structure
 
 ```python
-# Importar módulos principales
+# Import main modules
 from src.router import AdaptiveInferenceRouter, RouteDecision, RouterResult
 from src.metrics import compute_intention_entropy, IntentionMetrics
 from src.controls import self_consistency_baseline, SelfConsistencyResult
 from src.decoding import constrained_mc_generation
 ```
 
-## Ejemplo Mínimo
+## Minimal Example
 
 ```python
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from src.router import AdaptiveInferenceRouter
 
-# Cargar modelo
+# Load model
 model = AutoModelForCausalLM.from_pretrained("gpt2")
 tokenizer = AutoTokenizer.from_pretrained("gpt2")
 
-# Crear router
+# Create router
 router = AdaptiveInferenceRouter(
     model=model,
     tokenizer=tokenizer,
-    entropy_threshold=3.0
+    entropy_threshold_low=0.5,
+    entropy_threshold_high=1.2
 )
 
-# Ejecutar inferencia adaptativa
-result = router.route_and_generate(
+# Run adaptive inference
+result = router.generate(
     question="What is 2 + 2?",
-    max_new_tokens=50
+    max_tokens_cot=50
 )
 
 print(f"Route: {result.route_taken}")
@@ -95,9 +96,9 @@ print(f"Entropy: {result.intention_entropy:.3f}")
 print(f"Answer: {result.extracted_answer}")
 ```
 
-## Dependencias
+## Dependencies
 
-El comando `pip install -e .` instala automáticamente:
+The `pip install -e .` command automatically installs:
 
 - `torch>=2.0.0`
 - `transformers>=4.36.0`
@@ -111,45 +112,45 @@ El comando `pip install -e .` instala automáticamente:
 
 ### Error: "No module named 'src'"
 
-**Causa:** El paquete no está instalado correctamente.
+**Cause:** The package is not installed correctly.
 
-**Solución:**
+**Solution:**
 ```python
 !pip install -e /content/intention-collapse-experiments/
 ```
 
 ### Error: "No module named 'torch'"
 
-**Causa:** Las dependencias no se instalaron.
+**Cause:** Dependencies were not installed.
 
-**Solución:**
+**Solution:**
 ```python
-# Instalar con dependencias explícitamente
+# Install with dependencies explicitly
 !pip install -e /content/intention-collapse-experiments/
 ```
 
 ### Error: "attempted relative import with no known parent package"
 
-**Causa:** Estás intentando ejecutar archivos de src/ directamente.
+**Cause:** You are trying to run src/ files directly.
 
-**Solución:** Importa desde el paquete instalado:
+**Solution:** Import from the installed package:
 ```python
-# ✅ Correcto
+# ✅ Correct
 from src.router import AdaptiveInferenceRouter
 
-# ❌ Incorrecto
+# ❌ Incorrect
 %run src/router/adaptive_router.py
 ```
 
-### Verificar que todo funciona
+### Verify that everything works
 
-Ejecuta este script de test:
+Run this test script:
 
 ```python
 import sys
 import subprocess
 
-# Test 1: Verificar instalación del paquete
+# Test 1: Verify package installation
 try:
     import src
     print(f"✅ Package 'src' installed (version {src.__version__})")
@@ -157,7 +158,7 @@ except ImportError as e:
     print(f"❌ Cannot import 'src': {e}")
     sys.exit(1)
 
-# Test 2: Verificar imports críticos
+# Test 2: Verify critical imports
 try:
     from src.router import AdaptiveInferenceRouter, RouteDecision
     print("✅ src.router imports OK")
@@ -189,18 +190,18 @@ except ImportError as e:
 print("\n✅ ALL TESTS PASSED - Ready to run experiments!")
 ```
 
-## Recursos
+## Resources
 
-- **Quick Start Notebook:** `notebooks/colab_router_experiment.ipynb`
-- **Full Experiments:** `notebooks/scaled/01_run_experiments.ipynb`
+- **Quick Start Notebook:** `notebooks/adaptive_router/colab_demo.ipynb`
+- **Full Experiments:** `notebooks/original_research/scaled/01_run_experiments.ipynb`
 - **Documentation:** [README.md](README.md)
 - **Paper:** [arXiv:2601.01011](https://arxiv.org/abs/2601.01011)
 
-## Soporte
+## Support
 
-Si encuentras problemas:
+If you encounter problems:
 
-1. Verifica que estás usando Python 3.10+
-2. Verifica que el branch es `v2-router-experiments`
-3. Ejecuta el script de verificación arriba
-4. Reporta issues en: https://github.com/patriciomvera/intention-collapse-experiments/issues
+1. Verify you are using Python 3.10+
+2. Verify the branch is `main`
+3. Run the verification script above
+4. Report issues at: https://github.com/patriciomvera/intention-collapse-experiments/issues

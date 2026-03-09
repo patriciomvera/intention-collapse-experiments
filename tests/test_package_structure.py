@@ -1,22 +1,22 @@
 """
-Test de estructura del paquete (sin dependencias pesadas).
+Test package structure (without heavy dependencies).
 
-Este test verifica que:
-1. El paquete src se puede importar
-2. Los submódulos tienen __init__.py correctos
-3. Los __all__ están definidos correctamente
+This test verifies that:
+1. The src package can be imported
+2. Submodules have correct __init__.py files
+3. __all__ exports are correctly defined
 """
 
 import sys
 from pathlib import Path
 
-# Agregar el directorio raíz al path
+# Add root directory to path
 root_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(root_dir))
 
 
 def test_package_import():
-    """Test que el paquete src se puede importar."""
+    """Test that the src package can be imported."""
     try:
         import src
         print(f"[OK] Package 'src' imported successfully")
@@ -28,10 +28,10 @@ def test_package_import():
 
 
 def test_submodule_structure():
-    """Test que los submódulos tienen estructura correcta."""
-    # Paquetes (directorios con __init__.py)
+    """Test that submodules have correct structure."""
+    # Packages (directories with __init__.py)
     subpackages = ['router', 'controls', 'decoding']
-    # Módulos (archivos .py directos)
+    # Modules (direct .py files)
     modules = ['metrics', 'activation_hooks', 'data_utils', 'probing', 'visualization']
 
     all_ok = True
@@ -46,7 +46,7 @@ def test_submodule_structure():
 
         print(f"[OK] src/{subpackage}/__init__.py exists")
 
-        # Intentar importar
+        # Try to import
         try:
             exec(f"import src.{subpackage}")
             print(f"[OK] src.{subpackage} imports successfully")
@@ -67,7 +67,7 @@ def test_submodule_structure():
 
 
 def test_module_all_exports():
-    """Test que los módulos definen __all__ correctamente."""
+    """Test that modules define __all__ correctly."""
     modules_to_check = {
         'src': ['compute_intention_entropy', 'IntentionMetrics'],
         'src.router': ['AdaptiveInferenceRouter', 'RouteDecision', 'RouterResult'],
@@ -88,21 +88,21 @@ def test_module_all_exports():
             else:
                 print(f"[WARNING] {module_name} does not define __all__")
         except Exception as e:
-            # Esto puede fallar si las dependencias no están instaladas, está OK
+            # This may fail if dependencies are not installed, that's OK
             print(f"[SKIP] Cannot check {module_name}: {e}")
 
     return True
 
 
 def test_lazy_imports():
-    """Test que el __getattr__ lazy loading funciona."""
+    """Test that __getattr__ lazy loading works."""
     try:
         import src
-        # El __version__ debe estar disponible sin lazy loading
+        # __version__ must be available without lazy loading
         assert hasattr(src, '__version__')
         print(f"[OK] src.__version__ is accessible: {src.__version__}")
 
-        # __all__ debe estar definido
+        # __all__ must be defined
         assert hasattr(src, '__all__')
         print(f"[OK] src.__all__ is defined with {len(src.__all__)} exports")
 

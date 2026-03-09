@@ -1,20 +1,20 @@
 """
-Test que todos los imports críticos funcionen en Colab.
+Test that all critical imports work in Colab.
 
-Este test valida que después de `pip install -e .`, todos los módulos
-principales se pueden importar sin errores.
+This test validates that after `pip install -e .`, all main modules
+can be imported without errors.
 """
 
 import sys
 from pathlib import Path
 
-# Agregar el directorio raíz al path (para testing local sin instalación)
+# Add root directory to path (for local testing without installation)
 root_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(root_dir))
 
 
 def test_core_imports():
-    """Test imports principales del paquete."""
+    """Test main package imports."""
     print("Testing core package imports...")
 
     # Test 1: Router module
@@ -56,7 +56,7 @@ def test_core_imports():
 
 
 def test_basic_functionality():
-    """Test que las clases básicas se puedan instanciar."""
+    """Test that basic classes can be instantiated."""
     print("\nTesting basic functionality...")
 
     from src.router import RouteDecision

@@ -1,6 +1,6 @@
 # Intention Collapse Experiments
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/patriciomvera/intention-collapse-experiments/blob/main/notebooks/scaled/01_run_experiments.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/patriciomvera/intention-collapse-experiments/blob/main/notebooks/adaptive_router/colab_demo.ipynb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![arXiv](https://img.shields.io/badge/arXiv-2601.01011-b31b1b.svg)](https://arxiv.org/abs/2601.01011)
@@ -36,44 +36,84 @@ We evaluate these metrics in a 3x3 study across models (Mistral-7B, LLaMA-3.1-8B
 ```
 intention-collapse-experiments/
 ├── README.md                    # This file
-├── CLAUDE.md                    # Project context for AI assistants
+├── COLAB_INSTALL.md            # Google Colab installation guide
 ├── CONTRIBUTING.md              # Contribution guidelines
 ├── requirements.txt             # Python dependencies
-├── .gitignore
+├── pyproject.toml              # Package configuration
+├── setup.py                    # Package setup
 │
 ├── configs/
 │   └── experiment_config.yaml   # Experiment hyperparameters
 │
-├── docs/
+├── docs/                       # Documentation
 │   ├── README.md
+│   ├── constrained_decoding.md
+│   ├── option_normalized_entropy.md
+│   ├── self_consistency.md
 │   └── paper/
-│       └── Intention_Collapse.pdf   # Current manuscript
+│       └── Intention_Collapse.pdf
 │
-├── notebooks/
-│   ├── colab_quick_test.ipynb       # Setup validation
-│   ├── pilot/                       # Initial validation (200 GSM8K, 1 model)
-│   │   ├── 01_pilot_gsm8k.ipynb
-│   │   └── README.md
-│   └── scaled/                      # Full 3x3 experiments
-│       ├── 01_run_experiments.ipynb
-│       ├── 02_consolidate_results.ipynb
-│       ├── reviewer_response_recalculations.ipynb
-│       ├── METHODOLOGICAL_CLARIFICATIONS.md
-│       └── README.md
+├── examples/                   # Standalone demo scripts
+│   ├── README.md
+│   ├── router_demo.py
+│   ├── option_normalized_demo.py
+│   ├── self_consistency_demo.py
+│   └── constrained_decoding_demo.py
 │
-├── results/
-│   ├── data/                        # JSON results & activations
-│   └── figures/                     # Publication-quality plots
+├── notebooks/                  # Jupyter notebooks
+│   ├── README.md
+│   ├── original_research/      # Intention Collapse framework (Paper)
+│   │   ├── README.md
+│   │   ├── pilot/             # Initial validation (1 model × 1 benchmark)
+│   │   │   ├── README.md
+│   │   │   └── 01_pilot_gsm8k.ipynb
+│   │   └── scaled/            # Full experiments (3 models × 3 benchmarks)
+│   │       ├── README.md
+│   │       ├── METHODOLOGICAL_CLARIFICATIONS.md
+│   │       ├── 01_run_experiments.ipynb
+│   │       ├── 02_consolidate_results.ipynb
+│   │       └── reviewer_response_recalculations.ipynb
+│   └── adaptive_router/        # Adaptive routing experiments
+│       ├── README.md
+│       ├── colab_demo.ipynb   # Quick Colab demo
+│       ├── quick_test.ipynb   # Setup validation
+│       └── full_experiment.ipynb  # Complete router evaluation
 │
-└── src/
-    ├── __init__.py
-    ├── activation_hooks.py          # Activation extraction utilities
-    ├── checkpoint_utils.py          # Checkpoint management
-    ├── data_utils.py                # Dataset loading and processing
-    ├── metrics.py                   # Intention metrics computation
-    ├── probing.py                   # Linear probe training/evaluation
-    ├── shared_utils.py              # Core experiment utilities
-    └── visualization.py             # Plotting functions
+├── scripts/                    # Standalone Python scripts
+│   ├── README.md
+│   ├── colab_setup.py         # Automated Colab installation
+│   ├── verify_colab_setup.py  # Installation verification
+│   └── run_router_experiment.py  # Non-interactive experiment runner
+│
+├── src/                        # Source code
+│   ├── __init__.py
+│   ├── activation_hooks.py    # Activation extraction
+│   ├── checkpoint_utils.py    # Checkpoint management
+│   ├── data_utils.py          # Dataset loading
+│   ├── metrics.py             # Intention metrics
+│   ├── probing.py             # Linear probes
+│   ├── shared_utils.py        # Core utilities
+│   ├── visualization.py       # Plotting functions
+│   ├── controls/              # Self-consistency baseline
+│   │   ├── __init__.py
+│   │   └── self_consistency.py
+│   ├── decoding/              # Constrained decoding
+│   │   ├── __init__.py
+│   │   └── constrained.py
+│   └── router/                # Adaptive router
+│       ├── __init__.py
+│       ├── README.md
+│       └── adaptive_router.py
+│
+├── tests/                      # Test suite
+│   ├── README.md
+│   ├── test_imports.py
+│   ├── test_option_normalized_entropy.py
+│   └── test_package_structure.py
+│
+└── results/                    # Experiment results (gitignored)
+    ├── original_research/      # Paper experiment outputs
+    └── adaptive_router/        # Router experiment outputs
 ```
 
 ## Installation
@@ -104,11 +144,17 @@ export HF_TOKEN="your_token_here"
 
 ### Google Colab Setup
 
-For quick experimentation in Google Colab, use the following setup:
+For quick experimentation in Google Colab:
 
+**Automated Setup (Recommended):**
 ```python
-# Clone repository (v2-router-experiments branch includes the adaptive router)
-!git clone -b v2-router-experiments https://github.com/patriciomvera/intention-collapse-experiments.git
+!wget -q https://raw.githubusercontent.com/patriciomvera/intention-collapse-experiments/main/scripts/colab_setup.py
+!python colab_setup.py
+```
+
+**Manual Setup:**
+```python
+!git clone -b main https://github.com/patriciomvera/intention-collapse-experiments.git
 !pip install -e /content/intention-collapse-experiments/
 
 # Verify installation
@@ -119,7 +165,11 @@ from src.decoding import constrained_mc_generation
 print("[OK] Ready to run experiments!")
 ```
 
-**Quick Start Notebook:** Try [`colab_router_experiment.ipynb`](notebooks/colab_router_experiment.ipynb) for a complete working example of the Adaptive Inference Router.
+**Quick Start Notebooks:**
+- **Adaptive Router Demo:** [`notebooks/adaptive_router/colab_demo.ipynb`](notebooks/adaptive_router/colab_demo.ipynb) - 5 minute demo
+- **Original Research:** [`notebooks/original_research/pilot/01_pilot_gsm8k.ipynb`](notebooks/original_research/pilot/01_pilot_gsm8k.ipynb) - Paper experiments
+
+See [`COLAB_INSTALL.md`](COLAB_INSTALL.md) for detailed installation instructions.
 
 ### Dependencies
 
@@ -141,23 +191,48 @@ Visualization:
 
 ## Running Experiments
 
-### Option 1: Google Colab (Recommended)
+### Quick Start: Adaptive Router
 
-1. Click the Colab badge above or open [`01_run_experiments.ipynb`](notebooks/scaled/01_run_experiments.ipynb)
-2. Set `MODEL_FAMILY` and `BENCHMARK` in Section 2
-3. Runtime > Run all
-4. Repeat for all 9 model-benchmark combinations
-5. Consolidate results with [`02_consolidate_results.ipynb`](notebooks/scaled/02_consolidate_results.ipynb)
-
-### Option 2: Local Execution
-
+Try the router in ~5 minutes:
 ```bash
-# Run experiments via Jupyter
-jupyter notebook notebooks/scaled/01_run_experiments.ipynb
-
-# Or run pilot study first
-jupyter notebook notebooks/pilot/01_pilot_gsm8k.ipynb
+# In Google Colab or local Jupyter
+jupyter notebook notebooks/adaptive_router/colab_demo.ipynb
 ```
+
+See [`notebooks/adaptive_router/README.md`](notebooks/adaptive_router/README.md) for details.
+
+### Original Research: Intention Collapse Framework
+
+**Pilot Study (Quick Start):**
+```bash
+# Initial validation experiment
+jupyter notebook notebooks/original_research/pilot/01_pilot_gsm8k.ipynb
+```
+
+**Scaled Experiments (Full Replication):**
+```bash
+# Run individual experiments (repeat 9 times)
+jupyter notebook notebooks/original_research/scaled/01_run_experiments.ipynb
+# Configure MODEL_FAMILY and BENCHMARK in the notebook
+
+# Consolidate all 9 experiments
+jupyter notebook notebooks/original_research/scaled/02_consolidate_results.ipynb
+```
+
+See [`notebooks/original_research/README.md`](notebooks/original_research/README.md) for complete details.
+
+### Command-Line Experiments
+
+For non-interactive execution:
+```bash
+# Run router experiment from command line
+python scripts/run_router_experiment.py --n_problems 200 --model qwen
+
+# See all options
+python scripts/run_router_experiment.py --help
+```
+
+See [`scripts/README.md`](scripts/README.md) for more options.
 
 ### Experimental Design
 
