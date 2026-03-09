@@ -23,7 +23,12 @@ class IntentionMetrics:
     entropy: float
     dim_eff: float
     recoverability: Optional[float] = None
-    
+
+    # Multiple-choice specific metrics
+    option_normalized_entropy: Optional[float] = None
+    option_probs: Optional[Dict[str, float]] = None
+    option_probability_mass: Optional[float] = None
+
     # Additional diagnostic information
     entropy_trajectory: Optional[List[float]] = None
     top_token_probs: Optional[Dict[str, float]] = None
@@ -83,18 +88,209 @@ def compute_entropy_trajectory(
 ) -> List[float]:
     """
     Compute entropy at each step of generation.
-    
+
     This allows us to observe the U-shaped curve predicted by the framework:
     entropy rises during exploration, then falls as intention crystallizes.
-    
+
     Args:
         all_logits: List of logits at each generation step
         top_k: Number of top tokens to consider
-        
+
     Returns:
         List of entropy values for each step
     """
     return [compute_intention_entropy(logits, top_k=top_k) for logits in all_logits]
+
+
+def get_option_token_ids(
+    tokenizer,
+    options: List[str] = ['A', 'B', 'C', 'D', 'E']
+) -> Dict[str, int]:
+    """
+    Get token IDs for multiple choice options.
+
+    Args:
+        tokenizer: HuggingFace tokenizer
+        options: List of option letters (default: ['A', 'B', 'C', 'D', 'E'])
+
+    Returns:
+        Dictionary mapping option letter to token ID
+
+    Note:
+        Some tokenizers may encode 'A' differently than ' A' (with space).
+        This function tries both and returns the most likely token ID.
+    """
+    option_ids = {}
+
+    for option in options:
+        # Try different encodings
+        candidates = [
+            option,           # "A"
+            f" {option}",     # " A" (with leading space)
+            f"{option}.",     # "A." (with period)
+            f" {option}.",    # " A." (with space and period)
+        ]
+
+        # Tokenize each candidate and take the first token
+        token_ids = []
+        for candidate in candidates:
+            ids = tokenizer.encode(candidate, add_special_tokens=False)
+            if ids:
+                token_ids.append(ids[0])
+
+        # Use the most common token ID (mode)
+        if token_ids:
+            from collections import Counter
+            most_common = Counter(token_ids).most_common(1)[0][0]
+            option_ids[option] = most_common
+
+    return option_ids
+
+
+def compute_option_normalized_entropy(
+    logits: torch.Tensor,
+    tokenizer,
+    options: List[str] = ['A', 'B', 'C', 'D'],
+    temperature: float = 1.0,
+    return_probs: bool = False
+) -> Union[float, Tuple[float, Dict[str, float]]]:
+    """
+    Compute intention entropy normalized over valid multiple-choice options only.
+
+    This is the key metric for multiple-choice questions. Instead of computing
+    entropy over the entire vocabulary (50k+ tokens), we only consider the
+    valid option tokens [A, B, C, D] or [A, B, C, D, E].
+
+    Key Insight:
+        - Regular H_int(I) may be high because of vocabulary uncertainty
+        - Option-normalized entropy focuses on uncertainty among valid answers
+        - This separates "compliance" (format issues) from "competence" (knowledge)
+
+    Args:
+        logits: Model output logits, shape (vocab_size,) or (seq_len, vocab_size)
+        tokenizer: HuggingFace tokenizer for getting option token IDs
+        options: List of valid option letters (default: ['A', 'B', 'C', 'D'])
+        temperature: Temperature for softmax (default 1.0)
+        return_probs: If True, also return probability distribution over options
+
+    Returns:
+        If return_probs=False: Shannon entropy in bits over valid options
+        If return_probs=True: Tuple of (entropy, {option: probability})
+
+    Example:
+        >>> logits = model(**inputs).logits[:, -1, :]
+        >>> entropy = compute_option_normalized_entropy(logits, tokenizer, ['A','B','C','D'])
+        >>> # entropy is now only considering uncertainty between A, B, C, D
+        >>> # Low entropy → model is confident in one option
+        >>> # High entropy (~2 bits for 4 options) → model is guessing uniformly
+
+    Reference:
+        "For multiple-choice questions, standard entropy conflates two issues:
+         (1) whether the model knows which option is correct (competence)
+         (2) whether the model will format its answer correctly (compliance)
+
+         Option-normalized entropy isolates competence by measuring uncertainty
+         only over the valid answer space."
+    """
+    # Handle sequence dimension - take last position
+    if logits.dim() == 2:
+        logits = logits[-1]
+
+    # Get token IDs for each option
+    option_ids = get_option_token_ids(tokenizer, options)
+
+    if len(option_ids) == 0:
+        raise ValueError(f"Could not find token IDs for any options: {options}")
+
+    # Extract logits for option tokens only
+    option_logits = []
+    valid_options = []
+
+    for option in options:
+        if option in option_ids:
+            token_id = option_ids[option]
+            option_logits.append(logits[token_id])
+            valid_options.append(option)
+
+    if len(option_logits) == 0:
+        raise ValueError(f"No valid option tokens found in vocabulary")
+
+    # Stack into tensor
+    option_logits = torch.stack(option_logits)
+
+    # Apply temperature scaling
+    scaled_logits = option_logits / temperature
+
+    # Softmax over options only
+    probs = F.softmax(scaled_logits, dim=-1)
+
+    # Compute Shannon entropy: H = -Σ p(x) log₂ p(x)
+    eps = 1e-10
+    log_probs = torch.log2(probs + eps)
+    entropy = -torch.sum(probs * log_probs).item()
+
+    if return_probs:
+        # Convert to dictionary
+        prob_dict = {opt: prob.item() for opt, prob in zip(valid_options, probs)}
+        return entropy, prob_dict
+
+    return entropy
+
+
+def compute_entropy_decomposition(
+    logits: torch.Tensor,
+    tokenizer,
+    options: List[str] = ['A', 'B', 'C', 'D'],
+    top_k: int = 100
+) -> Dict[str, float]:
+    """
+    Decompose entropy into option-normalized vs residual components.
+
+    This diagnostic helps understand whether high entropy is due to:
+    - Uncertainty about the answer (high option-normalized entropy)
+    - Formatting/compliance issues (high residual entropy)
+
+    Args:
+        logits: Model output logits
+        tokenizer: HuggingFace tokenizer
+        options: Valid option letters
+        top_k: Top-k for standard entropy
+
+    Returns:
+        Dictionary with:
+        - 'standard': Standard H_int(I) over top-k tokens
+        - 'option_normalized': Entropy over valid options only
+        - 'option_probability_mass': Total probability on valid options
+        - 'ratio': option_normalized / standard
+
+    Interpretation:
+        - ratio ≈ 1.0 → Most uncertainty is about which option (competence issue)
+        - ratio << 1.0 → Much uncertainty is outside options (compliance issue)
+        - option_probability_mass < 0.5 → Model not focused on valid options
+    """
+    # Compute standard entropy
+    standard_entropy = compute_intention_entropy(logits, top_k=top_k)
+
+    # Compute option-normalized entropy and probabilities
+    option_entropy, option_probs = compute_option_normalized_entropy(
+        logits, tokenizer, options, return_probs=True
+    )
+
+    # Total probability mass on valid options
+    option_prob_mass = sum(option_probs.values())
+
+    # Compute ratio
+    ratio = option_entropy / standard_entropy if standard_entropy > 0 else 0.0
+
+    return {
+        'standard': standard_entropy,
+        'option_normalized': option_entropy,
+        'option_probability_mass': option_prob_mass,
+        'ratio': ratio,
+        'option_probs': option_probs,
+        'most_likely_option': max(option_probs.items(), key=lambda x: x[1])[0],
+        'confidence': max(option_probs.values())  # Probability of most likely option
+    }
 
 
 def compute_effective_dimensionality(

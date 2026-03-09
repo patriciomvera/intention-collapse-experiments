@@ -102,6 +102,25 @@ pip install -r requirements.txt
 export HF_TOKEN="your_token_here"
 ```
 
+### Google Colab Setup
+
+For quick experimentation in Google Colab, use the following setup:
+
+```python
+# Clone repository (v2-router-experiments branch includes the adaptive router)
+!git clone -b v2-router-experiments https://github.com/patriciomvera/intention-collapse-experiments.git
+!pip install -e /content/intention-collapse-experiments/
+
+# Verify installation
+from src.router import AdaptiveInferenceRouter, RouteDecision
+from src.metrics import compute_intention_entropy
+from src.controls import self_consistency_baseline
+from src.decoding import constrained_mc_generation
+print("[OK] Ready to run experiments!")
+```
+
+**Quick Start Notebook:** Try [`colab_router_experiment.ipynb`](notebooks/colab_router_experiment.ipynb) for a complete working example of the Adaptive Inference Router.
+
 ### Dependencies
 
 Core ML frameworks:
