@@ -515,91 +515,59 @@ class AdaptiveInferenceRouter:
         """
         Extract the final answer from generated text.
 
-        This is a simplified version. For production, use the robust
-        extraction from shared_utils.py which handles multiple patterns.
+        Delegates to the production-grade extractors in shared_utils.py,
+        which handle all edge cases (commas, $, "Final answer:", "= X", etc.)
 
         Args:
-            generated_text: Generated text only
-            full_text: Full text including prompt
+            generated_text: Generated text only (not including the prompt)
+            full_text: Full text including prompt (unused, kept for API compat)
 
         Returns:
-            Extracted answer string
+            Extracted answer string (cleaned, no commas or currency symbols)
         """
+        try:
+            from ..shared_utils import extract_answer
+            answer, _ = extract_answer(generated_text, self.benchmark)
+            return answer
+        except Exception:
+            pass
+
+        # Fallback if shared_utils not available
         import re
-
-        # Pattern 1: "#### X" format (GSM8K style)
-        # Search only in generated_text to avoid matching "####" in the prompt instruction
-        pattern_hash = r'####\s*([^\n]+)'
-        match = re.search(pattern_hash, generated_text)
-        if match:
-            return match.group(1).strip()
-
-        # Pattern 2: "\boxed{X}" format (MATH style)
-        pattern_box = r'\\boxed\{([^}]+)\}'
-        match = re.search(pattern_box, generated_text)
-        if match:
-            return match.group(1).strip()
-
-        # Pattern 3: "The answer is X" or "Final answer: X"
-        pattern_answer = r'(?:answer is|final answer:)\s*([A-E\d,\.]+)'
-        match = re.search(pattern_answer, generated_text, re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-
-        # Pattern 4: For MC questions, look for standalone letter
-        if self.benchmark in ['arc', 'aqua']:
-            pattern_letter = r'\b([A-E])\b'
-            matches = re.findall(pattern_letter, generated_text)
-            if matches:
-                return matches[-1]  # Take last occurrence
-
-        # Fallback: last number or word
-        tokens = generated_text.strip().split()
-        if tokens:
-            # Try to find last number
-            for token in reversed(tokens):
-                if re.match(r'^-?\d+\.?\d*$', token):
-                    return token
-            # Otherwise return last token
-            return tokens[-1]
-
-        return ""
+        numbers = re.findall(r'-?[\d,]+\.?\d*', generated_text)
+        numbers = [n.replace(',', '') for n in numbers
+                   if n.replace(',', '').replace('.', '').replace('-', '').isdigit()]
+        return numbers[-1] if numbers else ""
 
     def _evaluate_answer(self, predicted: str, ground_truth: str) -> bool:
         """
         Evaluate if predicted answer matches ground truth.
 
+        Delegates to production-grade evaluators in shared_utils.py.
+
         Args:
-            predicted: Predicted answer
+            predicted: Predicted answer (already cleaned by _extract_answer)
             ground_truth: Ground truth answer
 
         Returns:
             True if correct, False otherwise
         """
-        # Normalize strings
-        pred_norm = predicted.strip().lower()
-        gt_norm = ground_truth.strip().lower()
-
-        # Exact match
-        if pred_norm == gt_norm:
-            return True
-
-        # For numbers, try numerical comparison
         try:
-            pred_num = float(pred_norm.replace(',', ''))
-            gt_num = float(gt_norm.replace(',', ''))
-            # Allow small floating point differences
-            return abs(pred_num - gt_num) < 1e-6
-        except (ValueError, AttributeError):
+            from ..shared_utils import evaluate_answer
+            is_correct, _ = evaluate_answer(predicted, ground_truth, self.benchmark)
+            return is_correct
+        except Exception:
             pass
 
-        # For multiple choice, just compare letters
-        if self.benchmark in ['arc', 'aqua']:
-            pred_letter = pred_norm[0] if pred_norm else ''
-            gt_letter = gt_norm[0] if gt_norm else ''
-            return pred_letter == gt_letter
-
-        return False
+        # Fallback: numerical comparison with comma/$ stripping
+        pred = predicted.strip().replace(',', '').replace('$', '').replace('%', '')
+        truth = ground_truth.strip().replace(',', '').replace('$', '').replace('%', '')
+        if pred == truth:
+            return True
+        try:
+            return abs(float(pred) - float(truth)) < 1e-6
+        except ValueError:
+            return False
 
     def get_statistics(self) -> Dict[str, Any]:
         """
