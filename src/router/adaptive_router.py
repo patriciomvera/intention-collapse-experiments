@@ -528,20 +528,21 @@ class AdaptiveInferenceRouter:
         import re
 
         # Pattern 1: "#### X" format (GSM8K style)
+        # Search only in generated_text to avoid matching "####" in the prompt instruction
         pattern_hash = r'####\s*([^\n]+)'
-        match = re.search(pattern_hash, full_text)
+        match = re.search(pattern_hash, generated_text)
         if match:
             return match.group(1).strip()
 
         # Pattern 2: "\boxed{X}" format (MATH style)
         pattern_box = r'\\boxed\{([^}]+)\}'
-        match = re.search(pattern_box, full_text)
+        match = re.search(pattern_box, generated_text)
         if match:
             return match.group(1).strip()
 
         # Pattern 3: "The answer is X" or "Final answer: X"
-        pattern_answer = r'(?:answer is|final answer:)\s*([A-E\d]+)'
-        match = re.search(pattern_answer, full_text, re.IGNORECASE)
+        pattern_answer = r'(?:answer is|final answer:)\s*([A-E\d,\.]+)'
+        match = re.search(pattern_answer, generated_text, re.IGNORECASE)
         if match:
             return match.group(1).strip()
 
