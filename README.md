@@ -271,8 +271,8 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) for deta
 
 **Patricio M. Vera**
 - GitHub: [@patriciomvera](https://github.com/patriciomvera)
-- Email: patricio.vera@gwu.edu
-- Institution: George Washington University
+- Email: patricio@neurocreaciones.ai
+- Institution: Neurocreaciones
 
 For questions, open an issue or start a discussion.
 
